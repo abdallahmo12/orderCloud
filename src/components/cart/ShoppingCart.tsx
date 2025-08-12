@@ -42,10 +42,7 @@ export const ShoppingCart = (): JSX.Element => {
     submitCart,
     estimateShipping,
   } = useShopper();
-
-  console.log("orderWorksheet:------------------> ", orderWorksheet);
-  console.log("worksheetLoading: --------------> ", worksheetLoading);
-  console.log("orderWorksheet?.Order?.ID: ---------------> ", orderWorksheet?.Order?.ID);
+  
   // const resEstimate = await estimateShipping();
   // console.log("estimateShipping: ---------------> ", resEstimate);
 

@@ -12,9 +12,11 @@ import { useShopper } from "@ordercloud/react-sdk";
 import {
   Address,
   OrderShipMethodSelection,
-  ShipMethod
+  ShipMethod,
+  Orders,
+  CreditCards
 } from "ordercloud-javascript-sdk";
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 
 interface CartShippingPanelProps {
   shippingAddress: Address;
@@ -26,9 +28,52 @@ const CartShippingPanel: React.FC<CartShippingPanelProps> = ({
   handleNextTab,
 }) => {
   const { orderWorksheet, calculateOrder, selectShipMethods } = useShopper();
-  const [shipMethodID, setShipMethodID] = useState<string>();
+  const [shipMethodID, setShipMethodID] = useState<string>("Free Shipping");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
+
+  const setShippingAndBilling = async () => {
+    if (!orderWorksheet?.Order?.ID) return;
+
+    try {
+      const getOrder = await Orders.Get("Incoming",orderWorksheet.Order.ID);
+      console.log("Order details:", getOrder);
+      const updatedOrder = await Orders.Patch("Incoming",orderWorksheet.Order.ID, {
+        ShippingAddressID: "northeast",
+        BillingAddressID: "northeast",
+      });
+      console.log("Shipping and billing address updated:", updatedOrder);
+    } catch (err) {
+      console.error("Failed to update shipping and billing address:", err);
+    }
+  }
+
+  const createPersonalCeditCard = async () => {
+    if (!orderWorksheet?.Order?.ID) return; 
+    try {
+      const creditCard = {
+        "ID": "MY_PERSONAL_CARD_ID",
+        "Token": "",
+        "CardType": "Visa",
+        "PartialAccountNumber": "424510",
+        "CardholderName": "Bill Test",
+        "ExpirationDate": "2024-01-01T00:00:00-06:00",
+        "xp": {}
+      };
+      const newCard = await CreditCards.Create('me', creditCard);
+      console.log("Credit card created:", newCard);
+    } catch (err) {
+      console.error("Failed to create credit card:", err);
+    } 
+  }
+
+  useEffect(() => {
+    console.log("orderWorksheet:------------------> ", orderWorksheet);
+    setShippingAndBilling();
+    // createPersonalCeditCard();
+    console.log("continue to shipping triggered")
+  },[])
+
 
   const handleSelectShipMethod = async () => {
     const orderID = orderWorksheet?.Order?.ID;
