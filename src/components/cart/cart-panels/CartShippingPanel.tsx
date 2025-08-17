@@ -2,8 +2,7 @@ import {
   Button,
   Card,
   CardBody,
-  Radio,
-  RadioGroup,
+  Select,
   Spinner,
   Text,
   VStack,
@@ -11,12 +10,13 @@ import {
 import { useShopper } from "@ordercloud/react-sdk";
 import {
   Address,
-  OrderShipMethodSelection,
-  ShipMethod,
+  Me,
+  Payments,
   Orders,
-  CreditCards
+  PaymentType,
+  IntegrationEvents
 } from "ordercloud-javascript-sdk";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 
 interface CartShippingPanelProps {
   shippingAddress: Address;
@@ -27,18 +27,105 @@ interface CartShippingPanelProps {
 const CartShippingPanel: React.FC<CartShippingPanelProps> = ({
   handleNextTab,
 }) => {
-  const { orderWorksheet, calculateOrder, selectShipMethods } = useShopper();
-  const [shipMethodID, setShipMethodID] = useState<string>("Free Shipping");
+  const { orderWorksheet } = useShopper();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
+  const [listOfAddresses , setListOfAddresses] = useState<Address[]>([]);
+
+  const shippingRef = useRef<HTMLSelectElement>(null);
+  const billingRef = useRef<HTMLSelectElement>(null);
+
+
+  const displaySelectsValues = () => {
+    const shippingSelect = shippingRef.current;
+    const billingSelect = billingRef.current;
+
+    if (shippingSelect && billingSelect) {
+      console.log("Shipping Select Value: ", shippingSelect.value);
+      console.log("Billing Select Value: ", billingSelect.value);
+    } else {
+      console.error("Refs not set correctly");
+    }
+  };
+
+  const createPersonalCeditCard = async () => {
+    if (!orderWorksheet?.Order?.ID) return;
+    try {
+      const creditCard = {
+        "ID": "MY_PERSONAL_CARD_ID",
+        "Token": "",
+        "CardType": "Visa",
+        "PartialAccountNumber": "4245",
+        "CardholderName": "Bill Test",
+        "ExpirationDate": "2024-01-01T00:00:00-06:00",
+        "xp": {}
+      };
+      const newCard = await Me.CreateCreditCard(creditCard);
+      console.log("Credit card created:", newCard);
+      return newCard;
+    } catch (err) {
+      console.error("Failed to create credit card:", err);
+    }
+  };
+
+  const createPaymentMethod = async (credit_card_id: string) => {
+    if (!orderWorksheet?.Order?.ID) return;
+    try {
+      const payment = {
+        ID: `${orderWorksheet.Order.ID}_payment`,
+        Type: "CreditCard" as PaymentType,
+        CreditCardID: credit_card_id,
+        Description: "Payment for Bill's Order",
+        Amount: orderWorksheet.Order.Total || 0,
+        Accepted: false,
+        xp: {}
+      };
+      const newPaymentMethod = await Payments.Create("All", orderWorksheet.Order.ID, payment);
+      console.log("Payment method created:", newPaymentMethod);
+      return newPaymentMethod;
+    } catch (err) {
+      console.error("Failed to create payment method:", err);
+    }
+  };
+
+  const createTrasaction = async (paymentMethodID: string | undefined) => {
+    if (!orderWorksheet?.Order?.ID) return;
+    try {
+      const transaction = {
+        ID: `${orderWorksheet.Order.ID}_payment`,
+        Amount: orderWorksheet.Order.Total || 0,
+        Accepted: true,
+        xp: {
+          method: 'Visa'
+        },
+        Transactions: [
+          {
+            ID: `${orderWorksheet.Order.ID}_transaction`,
+            Type: 'CreditCard',
+            TransactionType: 'Credit', // أو Authorization أو Credit
+            Amount: orderWorksheet.Order.Total || 0,
+            DateExecuted: new Date().toISOString(),
+
+            xp: {
+              processor: 'Stripe',
+              referenceNumber: 'txn_7890'
+            }
+          }
+        ]
+      };
+      const newTransaction = await Payments.Patch("All", orderWorksheet.Order.ID, paymentMethodID, transaction);
+      console.log("Transaction created:", newTransaction);
+    } catch (err) {
+      console.error("Failed to create transaction:", err);
+    }
+  };
 
   const setShippingAndBilling = async () => {
     if (!orderWorksheet?.Order?.ID) return;
-
     try {
-      const getOrder = await Orders.Get("Incoming",orderWorksheet.Order.ID);
+      const getOrder = await Orders.Get("All", orderWorksheet.Order.ID);
       console.log("Order details:", getOrder);
-      const updatedOrder = await Orders.Patch("Incoming",orderWorksheet.Order.ID, {
+      const updatedOrder = await Orders.Patch("All", orderWorksheet.Order.ID, {
         ShippingAddressID: "northeast",
         BillingAddressID: "northeast",
       });
@@ -46,60 +133,73 @@ const CartShippingPanel: React.FC<CartShippingPanelProps> = ({
     } catch (err) {
       console.error("Failed to update shipping and billing address:", err);
     }
-  }
+  };
 
-  const createPersonalCeditCard = async () => {
-    if (!orderWorksheet?.Order?.ID) return; 
+  const calculateTheOrder = async (orderID: string) => {
     try {
-      const creditCard = {
-        "ID": "MY_PERSONAL_CARD_ID",
-        "Token": "",
-        "CardType": "Visa",
-        "PartialAccountNumber": "424510",
-        "CardholderName": "Bill Test",
-        "ExpirationDate": "2024-01-01T00:00:00-06:00",
-        "xp": {}
-      };
-      const newCard = await CreditCards.Create('me', creditCard);
-      console.log("Credit card created:", newCard);
+      const result = await IntegrationEvents.Calculate('All', orderID);
+      console.log('Calculated order:', result);
+      return result;
+    } catch (error) {
+      console.error('Error calculating order:', error);
+      throw error;
+    }
+  };
+
+  const getPaymentsForOrder = async (orderID: string) => {
+    const res = await Payments.List('All', orderID);
+
+    console.log('Payments:', res.Items);
+
+    if (res.Items.length > 0) {
+      console.log('First Payment ID:', res.Items[0].ID);
+      return res.Items[0].ID;
+    } else {
+      console.log('No payments found for this order.');
+      return null;
+    }
+  };
+
+  const getAddesses = async () => {
+    if (!orderWorksheet?.Order?.ID) return;
+    try {
+      const listAddresses = await Me.ListAddresses();
+      console.log("List Address:", listAddresses);
+      setListOfAddresses(listAddresses.Items || []);
     } catch (err) {
-      console.error("Failed to create credit card:", err);
-    } 
-  }
+      console.error("Failed to get addresses:", err);
+    }
+  };
 
   useEffect(() => {
-    console.log("orderWorksheet:------------------> ", orderWorksheet);
-    setShippingAndBilling();
-    // createPersonalCeditCard();
-    console.log("continue to shipping triggered")
-  },[])
+    console.log("continue to shipping triggered");
+    getAddesses()
+    displaySelectsValues();
+  }, []);
 
 
   const handleSelectShipMethod = async () => {
     const orderID = orderWorksheet?.Order?.ID;
-    const shipEstimateID =
-      orderWorksheet?.ShipEstimateResponse?.ShipEstimates?.at(0)?.ID;
-
-    if (!orderID || !shipEstimateID) {
-      console.error("Missing required data for ship method selection.");
-      return;
+    // setting shipping and billing address
+    setShippingAndBilling();
+    // creating personal credit card
+    const creditCard = await createPersonalCeditCard();
+    if (creditCard?.ID) {
+      const paymentMethodID = await getPaymentsForOrder(orderID || "");
+      console.log("Payment ID -------------------->", paymentMethodID);
+      if (!paymentMethodID) {
+        console.error("No payment method found for the order.");
+        // creating payment method
+        const paymentMethod = await createPaymentMethod(creditCard.ID);
+        // creating transaction
+        createTrasaction(paymentMethod?.ID);
+        return;
+      }
     }
-
-    if (!shipMethodID) {
-      console.error("Selected method not found.");
-      return;
-    }
-
-    const shipMethodSelection: OrderShipMethodSelection = {
-      ShipMethodSelections: [
-        { ShipEstimateID: shipEstimateID, ShipMethodID: shipMethodID },
-      ],
-    };
+    calculateTheOrder(orderID || "");
 
     try {
       setLoading(true);
-      await selectShipMethods(shipMethodSelection);
-      await calculateOrder();
       handleNextTab();
     } catch (err) {
       console.error("Failed to select shipping method:", err);
@@ -132,54 +232,41 @@ const CartShippingPanel: React.FC<CartShippingPanelProps> = ({
   }
 
   return (
-    <VStack alignItems="flex-start">
-      <Card variant="flat" shadow="none" bgColor="whiteAlpha.800" w="full">
-        <CardBody display="flex" flexDirection="column" gap="3">
-          <RadioGroup
-            sx={{
-              ".chakra-radio__label": {
-                display: "flex",
-                alignItems: "center",
-                width: "full",
-                gap: "3",
-              },
-            }}
-            value={shipMethodID}
-            onChange={setShipMethodID}
-            as={VStack}
-          >
-            {orderWorksheet?.ShipEstimateResponse?.ShipEstimates?.at(
-              0
-            )?.ShipMethods?.map((method: ShipMethod) => (
-              <Radio key={method.ID} value={method.ID} w="full" gap="3">
-                <VStack align="flex-start" gap="0" flexGrow="1">
-                  <Text fontSize="lg" fontWeight="semibold">
-                    {method.Name}
-                  </Text>
-                  <Text fontSize="sm" color="chakra-subtle-text">
-                    {method.EstimatedTransitDays === 1
-                      ? "1-day delivery"
-                      : `${method.EstimatedTransitDays}-day delivery`}
-                  </Text>
-                </VStack>
-                <Text
-                  ml="auto"
-                  fontWeight="bold"
-                  color="gray.600"
-                  fontSize="lg"
-                >
-                  ${method?.Cost?.toFixed(2)}
-                </Text>
-              </Radio>
-            ))}
-          </RadioGroup>
+    <VStack alignItems="stretch" spacing={4} as="form" width="100%" w={"full"}>
+      <Card>
+        <CardBody>
+          <VStack align="start" spacing={4}>
+            <VStack align="start">
+              <Text fontWeight="bold">Shipping Address</Text>
+              <Select ref = {shippingRef} id = "shipping" defaultValue="" onChange={displaySelectsValues} >
+                {listOfAddresses.map((address) => (
+                  <option key={address.ID} value={address.ID}>
+                    {address.AddressName}
+                  </option>
+                ))}
+                <option value="messi">Messi</option>
+                <option value="Lamine">Lamine Yamal</option>
+              </Select>
+            </VStack>
+            <VStack align="start">
+              <Text fontWeight="bold">Billing Address</Text>
+              <Select ref = {billingRef} id = "billing" defaultValue="" onChange={displaySelectsValues}>
+                {listOfAddresses.map((address) => (
+                  <option key={address.ID} value={address.ID}>
+                    {address.AddressName}
+                  </option>
+                ))}
+                <option value="messi">Messi</option>
+                <option value="Lamine">Lamine Yamal</option>
+              </Select>
+            </VStack>
+          </VStack>
         </CardBody>
       </Card>
       <Button
         alignSelf="flex-end"
         mt={6}
         onClick={handleSelectShipMethod}
-        isDisabled={!shipMethodID || loading}
       >
         {loading ? <Spinner size="sm" /> : "Continue to payment"}
       </Button>
