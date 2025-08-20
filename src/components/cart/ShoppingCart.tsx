@@ -16,7 +16,7 @@ import {
   VStack,
 } from "@chakra-ui/react";
 import { useShopper } from "@ordercloud/react-sdk";
-import { Address , Orders } from "ordercloud-javascript-sdk";
+import { Address, IntegrationEvents, Me, Payments, PaymentType } from "ordercloud-javascript-sdk";
 import { useCallback, useEffect, useState } from "react";
 import { Link as RouterLink, useNavigate } from "react-router-dom";
 import { CartInformationPanel } from "./cart-panels/CartInformationPanel";
@@ -24,6 +24,8 @@ import { CartPaymentPanel } from "./cart-panels/CartPaymentPanel";
 import CartShippingPanel from "./cart-panels/CartShippingPanel";
 import CartSkeleton from "./ShoppingCartSkeleton";
 import CartSummary from "./ShoppingCartSummary";
+import useAppendAddresses from "../../hooks/useAppendAddress";
+import { ca } from "date-fns/locale/ca";
 
 export const TABS = {
   INFORMATION: 0,
@@ -34,16 +36,16 @@ export const TABS = {
 export const ShoppingCart = (): JSX.Element => {
   const [submitting, setSubmitting] = useState(false);
   const [tabIndex, setTabIndex] = useState(TABS.INFORMATION);
+  const [isAppendAddress, setIsAppendAddress] = useState(false);
 
   const {
     orderWorksheet,
     worksheetLoading,
     deleteCart,
-    submitCart,
-    estimateShipping,
+    submitCart
   } = useShopper();
 
-  
+
 
   const [shippingAddress, setShippingAddress] = useState<Address>({
     FirstName: "",
@@ -60,8 +62,145 @@ export const ShoppingCart = (): JSX.Element => {
 
   const navigate = useNavigate();
   const toast = useToast();
+  const orderID = orderWorksheet?.Order?.ID;
 
-  const submitOrder = useCallback(async () => {
+  useEffect(() => {
+    console.log("tabIndex:", tabIndex);
+    (orderID && tabIndex == 2) && calculateTheOrder(orderID || "");
+  }, [tabIndex, orderID]);
+
+  useAppendAddresses(shippingAddress, isAppendAddress, setIsAppendAddress);
+  const createPersonalCeditCard = async () => {
+    if (!orderWorksheet?.Order?.ID) return;
+    try {
+      const creditCard = {
+        "ID": "MY_PERSONAL_CARD_ID",
+        "Token": "",
+        "CardType": "Visa",
+        "PartialAccountNumber": "4245",
+        "CardholderName": "Bill Test",
+        "ExpirationDate": "2024-01-01T00:00:00-06:00",
+        "xp": {}
+      };
+      const newCard = await Me.CreateCreditCard(creditCard);
+      console.log("Credit card created:", newCard);
+      return newCard;
+    } catch (err) {
+      console.error("Failed to create credit card:", err);
+    }
+  };
+
+  const createPaymentMethod = async (credit_card_id: string) => {
+    if (!orderWorksheet?.Order?.ID) return;
+    try {
+      const payment = {
+        ID: `${orderWorksheet.Order.ID}_payment`,
+        Type: "CreditCard" as PaymentType,
+        CreditCardID: credit_card_id,
+        Description: "Payment for Bill's Order",
+        Amount: orderWorksheet.Order.Total || 0,
+        Accepted: false,
+        xp: {}
+      };
+      const newPaymentMethod = await Payments.Create("All", orderWorksheet.Order.ID, payment);
+      console.log("Payment method created:", newPaymentMethod);
+      return newPaymentMethod;
+    } catch (err) {
+      console.error("Failed to create payment method:", err);
+    }
+  };
+
+  const createTrasaction = async (paymentMethodID: string | undefined) => {
+    if (!orderWorksheet?.Order?.ID) return;
+    try {
+      const transaction = {
+        ID: `${orderWorksheet.Order.ID}_payment`,
+        Amount: orderWorksheet.Order.Total || 0,
+        Accepted: true,
+        xp: {
+          method: 'Visa'
+        },
+        Transactions: [
+          {
+            ID: `${orderWorksheet.Order.ID}_transaction`,
+            Type: 'CreditCard',
+            TransactionType: 'Credit', // أو Authorization أو Credit
+            Amount: orderWorksheet.Order.Total || 0,
+            DateExecuted: new Date().toISOString(),
+
+            xp: {
+              processor: 'Stripe',
+              referenceNumber: 'txn_7890'
+            }
+          }
+        ]
+      };
+      if (!paymentMethodID) {
+        throw new Error("paymentMethodID is undefined");
+      }
+      const newTransaction = await Payments.Patch("All", orderWorksheet.Order.ID, paymentMethodID, transaction);
+      console.log("Transaction created:", newTransaction);
+    } catch (err) {
+      console.error("Failed to create transaction:", err);
+    }
+  };
+
+  const calculateTheOrder = async (orderID: string) => {
+    try {
+      const result = await IntegrationEvents.Calculate('All', orderID);
+      console.log('Calculated order:', result);
+      return result;
+    } catch (error) {
+      console.error('Error calculating order:', error);
+      throw error;
+    }
+  };
+
+  const getPaymentsForOrder = async (orderID: string) => {
+    const res = await Payments.List('All', orderID);
+
+    console.log('Payments:', res.Items);
+
+    if (res.Items.length > 0) {
+      console.log('First Payment ID:', res.Items[0].ID);
+      return res.Items[0].ID;
+    } else {
+      console.log('No payments found for this order.');
+      return null;
+    }
+  };
+  const Calculate = async (creditCardID: string) => {
+    console.log("CreditCardID : --------------->", creditCardID);
+    try {
+      if (creditCardID) {
+        const paymentMethodID = await getPaymentsForOrder(orderID || "");
+        console.log("Payment ID -------From SubmitOrder ------->", paymentMethodID);
+        if (!paymentMethodID) {
+          console.error("No payment method found for the order.");
+          // creating payment method
+          const paymentMethod = await createPaymentMethod(creditCardID);
+          // creating transaction
+          createTrasaction(paymentMethod?.ID);
+          // return;
+        }
+      }
+      calculateTheOrder(orderID || "");
+    } catch (err) {
+      console.error("Error Calculating order:", err);
+      toast({
+        title: "Error submitting order",
+        description:
+          "There was an issue calculating your order. Please try again.",
+        status: "error",
+        duration: 5000,
+        isClosable: true,
+      });
+    }
+  }
+
+
+  const submitOrder = async () => {
+    // const orderID = orderWorksheet?.Order?.ID;
     setSubmitting(true);
     if (!orderWorksheet?.Order?.ID) return;
     try {
@@ -80,7 +219,7 @@ export const ShoppingCart = (): JSX.Element => {
         isClosable: true,
       });
     }
-  }, [navigate, orderWorksheet?.Order?.ID, submitCart, toast]);
+  }
 
   const deleteOrder = useCallback(async () => {
     if (!orderWorksheet?.Order?.ID) return;
@@ -105,10 +244,10 @@ export const ShoppingCart = (): JSX.Element => {
     if (!orderWorksheet?.Order?.ID) return;
 
     try {
-      const res1 = await setShippingAddress(shippingAddress);
-      const res2 = await estimateShipping();
-      console.log("Shipping address saved:", res1);
-      console.log("Shipping estimated:", res2);
+      // adding shipping address to the order
+      setIsAppendAddress(true);
+      // const res1 = await setShippingAddress(shippingAddress);
+      // const res2 = await estimateShipping();
     } catch (err) {
       console.error("Failed to save shipping address:", err);
     }
@@ -122,8 +261,8 @@ export const ShoppingCart = (): JSX.Element => {
       ) : (
         <>
           {orderWorksheet?.Order &&
-          orderWorksheet?.LineItems &&
-          orderWorksheet?.LineItems?.length ? (
+            orderWorksheet?.LineItems &&
+            orderWorksheet?.LineItems?.length ? (
             <>
               {submitting && (
                 <Center
@@ -179,6 +318,7 @@ export const ShoppingCart = (): JSX.Element => {
                           <CartInformationPanel
                             shippingAddress={shippingAddress}
                             setShippingAddress={setShippingAddress}
+                            handleNextTab={handleNextTab}
                             handleSaveShippingAddress={
                               handleSaveShippingAddress
                             }
@@ -196,6 +336,7 @@ export const ShoppingCart = (): JSX.Element => {
                           <CartPaymentPanel
                             submitOrder={submitOrder}
                             submitting={submitting}
+                            Calculate={Calculate}
                           />
                         </TabPanel>
                       </TabPanels>

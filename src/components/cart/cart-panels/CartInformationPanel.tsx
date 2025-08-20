@@ -1,4 +1,5 @@
 import {
+  Box,
   Button,
   FormControl,
   FormErrorMessage,
@@ -6,6 +7,7 @@ import {
   Heading,
   HStack,
   Input,
+  list,
   Select,
   Stack,
   VStack,
@@ -14,19 +16,24 @@ import { Address } from "ordercloud-javascript-sdk";
 import { Dispatch, SetStateAction, useState } from "react";
 import { DebouncedInput } from "../../shared/DebouncedInput";
 import { US_STATES } from "../../../constants";
+import useAddresses from "../../../hooks/useAddresses";
 
 type CartInformationPanelProps = {
+  handleNextTab: () => void;
   shippingAddress: Address;
   setShippingAddress: Dispatch<SetStateAction<Address>>;
   handleSaveShippingAddress: () => void;
 };
 
-export const CartInformationPanel = ({
+export const CartInformationPanel =  ({
+  handleNextTab,
   shippingAddress,
   setShippingAddress,
   handleSaveShippingAddress,
 }: CartInformationPanelProps) => {
   const [formErrors, setFormErrors] = useState<Record<string, boolean>>({});
+
+  const listOfAddresses = useAddresses();
 
   const formatPhoneNumber = (value: string) => {
     const cleaned = value.replace(/\D/g, ""); // Remove all non-digit characters
@@ -72,9 +79,15 @@ export const CartInformationPanel = ({
 
   const handleFormSubmit = () => {
     if (validateFields()) {
+      console.log("Form is valid, proceeding with save..." , shippingAddress);
       handleSaveShippingAddress();
     }
   };
+  const skipToShipping = () => {
+    if( listOfAddresses && listOfAddresses.length > 0) {
+      handleNextTab();
+    }
+  }
 
   return (
     <VStack alignItems="stretch" as="form">
@@ -239,10 +252,16 @@ export const CartInformationPanel = ({
           )}
         </FormControl>
       </Stack>
+      
+      <Box alignSelf="flex-end">
+        <Button onClick={skipToShipping} mt={6} mr={3}>
+          Skip
+        </Button>
 
-      <Button alignSelf="flex-end" onClick={handleFormSubmit} mt={6}>
-        Continue to shipping
-      </Button>
+        <Button  onClick={handleFormSubmit} mt={6}>
+          Continue to shipping
+        </Button>
+      </Box>
     </VStack>
   );
 };

@@ -1,14 +1,16 @@
-import { Button } from "@chakra-ui/react";
-import { useMemo } from "react";
+import { Button, Radio, RadioGroup, Stack } from "@chakra-ui/react";
+import { useMemo, useState } from "react";
 import { PAYMENT_PROVIDER, PAYMENT_PROVIDERS } from "../../../constants";
 import { BlueSnap } from "../Payment/BlueSnap";
 import { CardConnect } from "../Payment/CardConnect";
 import { PayPal } from "../Payment/PayPal";
 import { Stripe } from "../Payment/Stripe";
+import PaymentMethod from "../Payment/PaymentMethod";
 
 type CartPaymentPanelProps = {
   submitOrder: () => void;
   submitting: boolean;
+  Calculate: (creditCardID: string) => void;
 };
 
 const PaymentMapper = (provider: PAYMENT_PROVIDERS) => {
@@ -29,23 +31,26 @@ const PaymentMapper = (provider: PAYMENT_PROVIDERS) => {
 export const CartPaymentPanel = ({
   submitOrder,
   submitting,
+  Calculate
 }: CartPaymentPanelProps) => {
-  const PaymentElement = useMemo(() => {
-    return PaymentMapper(PAYMENT_PROVIDER);
-  }, []);
+  const [selectedProvider, setSelectedProvider] = useState("CreditCard");
 
+  // console.log("Selected Payment Provider:", selectedProvider);
   return (
     <>
-      {PaymentElement}
-
-      <Button
-        alignSelf="flex-end"
-        onClick={submitOrder}
-        mt={6}
-        isDisabled={submitting}
+      <RadioGroup
+        defaultValue={"CreditCard"}
+        onChange={val => setSelectedProvider(val)}
+        mb={4}
       >
-        {submitting ? "Submitting" : "Submit Order"}
-      </Button>
+        <Stack direction="row">
+          <Radio value={"CreditCard"}>CreditCard</Radio>
+          <Radio value={"Cash"}>Cash</Radio>
+        </Stack>
+      </RadioGroup>
+
+      {selectedProvider === "CreditCard" && (
+        <PaymentMethod submitOrder={submitOrder} submitting={submitting} Calculate={Calculate} />)}
     </>
   );
 };

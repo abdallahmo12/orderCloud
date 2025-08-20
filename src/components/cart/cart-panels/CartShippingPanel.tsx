@@ -2,6 +2,7 @@ import {
   Button,
   Card,
   CardBody,
+  list,
   Select,
   Spinner,
   Text,
@@ -30,7 +31,7 @@ const CartShippingPanel: React.FC<CartShippingPanelProps> = ({
   const { orderWorksheet } = useShopper();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
-  const [listOfAddresses , setListOfAddresses] = useState<Address[]>([]);
+  const [listOfAddresses, setListOfAddresses] = useState<Address[]>([]);
 
   const shippingRef = useRef<HTMLSelectElement>(null);
   const billingRef = useRef<HTMLSelectElement>(null);
@@ -45,6 +46,25 @@ const CartShippingPanel: React.FC<CartShippingPanelProps> = ({
       console.log("Billing Select Value: ", billingSelect.value);
     } else {
       console.error("Refs not set correctly");
+    }
+  };
+
+  const setShippingAndBilling = async () => {
+    if (!orderWorksheet?.Order?.ID) return;
+    if (!shippingRef.current || !billingRef.current) return;
+    const shippingAddressID = shippingRef.current.value;
+    const billingAddressID = billingRef.current.value;
+
+    try {
+      const getOrder = await Orders.Get("All", orderWorksheet.Order.ID);
+      console.log("Order details:", getOrder);
+      const updatedOrder = await Orders.Patch("All", orderWorksheet.Order.ID, {
+        ShippingAddressID: shippingAddressID,
+        BillingAddressID: billingAddressID,
+      });
+      console.log("Shipping and billing address updated:", updatedOrder);
+    } catch (err) {
+      console.error("Failed to update shipping and billing address:", err);
     }
   };
 
@@ -120,21 +140,6 @@ const CartShippingPanel: React.FC<CartShippingPanelProps> = ({
     }
   };
 
-  const setShippingAndBilling = async () => {
-    if (!orderWorksheet?.Order?.ID) return;
-    try {
-      const getOrder = await Orders.Get("All", orderWorksheet.Order.ID);
-      console.log("Order details:", getOrder);
-      const updatedOrder = await Orders.Patch("All", orderWorksheet.Order.ID, {
-        ShippingAddressID: "northeast",
-        BillingAddressID: "northeast",
-      });
-      console.log("Shipping and billing address updated:", updatedOrder);
-    } catch (err) {
-      console.error("Failed to update shipping and billing address:", err);
-    }
-  };
-
   const calculateTheOrder = async (orderID: string) => {
     try {
       const result = await IntegrationEvents.Calculate('All', orderID);
@@ -168,6 +173,7 @@ const CartShippingPanel: React.FC<CartShippingPanelProps> = ({
       setListOfAddresses(listAddresses.Items || []);
     } catch (err) {
       console.error("Failed to get addresses:", err);
+      setListOfAddresses([]);
     }
   };
 
@@ -179,25 +185,24 @@ const CartShippingPanel: React.FC<CartShippingPanelProps> = ({
 
 
   const handleSelectShipMethod = async () => {
-    const orderID = orderWorksheet?.Order?.ID;
+    // const orderID = orderWorksheet?.Order?.ID;
     // setting shipping and billing address
     setShippingAndBilling();
     // creating personal credit card
-    const creditCard = await createPersonalCeditCard();
-    if (creditCard?.ID) {
-      const paymentMethodID = await getPaymentsForOrder(orderID || "");
-      console.log("Payment ID -------------------->", paymentMethodID);
-      if (!paymentMethodID) {
-        console.error("No payment method found for the order.");
-        // creating payment method
-        const paymentMethod = await createPaymentMethod(creditCard.ID);
-        // creating transaction
-        createTrasaction(paymentMethod?.ID);
-        return;
-      }
-    }
-    calculateTheOrder(orderID || "");
-
+    // const creditCard = await createPersonalCeditCard();
+    // if (creditCard?.ID) {
+    //   const paymentMethodID = await getPaymentsForOrder(orderID || "");
+    //   console.log("Payment ID -------------------->", paymentMethodID);
+    //   if (!paymentMethodID) {
+    //     console.error("No payment method found for the order.");
+    //     // creating payment method
+    //     const paymentMethod = await createPaymentMethod(creditCard?.ID);
+    //     // creating transaction
+    //     createTrasaction(paymentMethod?.ID);
+    //     return;
+    //   }
+    // }
+    // calculateTheOrder(orderID || "");
     try {
       setLoading(true);
       handleNextTab();
@@ -238,26 +243,22 @@ const CartShippingPanel: React.FC<CartShippingPanelProps> = ({
           <VStack align="start" spacing={4}>
             <VStack align="start">
               <Text fontWeight="bold">Shipping Address</Text>
-              <Select ref = {shippingRef} id = "shipping" defaultValue="" onChange={displaySelectsValues} >
+              <Select ref={shippingRef} id="shipping" defaultValue={"northeast"} onChange={displaySelectsValues} >
                 {listOfAddresses.map((address) => (
                   <option key={address.ID} value={address.ID}>
-                    {address.AddressName}
+                    {address.AddressName || address.Street1}
                   </option>
                 ))}
-                <option value="messi">Messi</option>
-                <option value="Lamine">Lamine Yamal</option>
               </Select>
             </VStack>
             <VStack align="start">
               <Text fontWeight="bold">Billing Address</Text>
-              <Select ref = {billingRef} id = "billing" defaultValue="" onChange={displaySelectsValues}>
+              <Select ref={billingRef} id="billing" defaultValue={"northeast"} onChange={displaySelectsValues}>
                 {listOfAddresses.map((address) => (
                   <option key={address.ID} value={address.ID}>
-                    {address.AddressName}
+                    {address.AddressName || address.Street1}
                   </option>
                 ))}
-                <option value="messi">Messi</option>
-                <option value="Lamine">Lamine Yamal</option>
               </Select>
             </VStack>
           </VStack>
